@@ -13,7 +13,7 @@
  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
-*/
+ */
 /**
  * Licensed Materials - Property of IBM
  * © Copyright IBM Corp. 2015
@@ -21,6 +21,16 @@
 var Express = require('express');
 var Cfenv = require('cfenv');
 var MessageHub = require('message-hub-rest');
+
+require('dotenv').load();
+
+// Load the Cloudant library.
+var Cloudant = require('cloudant');
+
+// Initialize Cloudant with settings from .env
+var username = process.env.cloudant_username || "nodejs";
+var password = process.env.cloudant_password;
+var cloudant = Cloudant({account:username, password:password});
 
 /**
  * registerExitHandlers
@@ -208,6 +218,10 @@ var start = function(restEndpoint, apiKey, callback) {
 
   instance = new MessageHub(appEnv.services);
 
+
+  // Specify the database we are going to use (alice)...
+  var livechat = cloudant.db.use('livechat')
+
   // Set up an interval which will poll Message Hub for
   // new messages on the 'livechat' topic.
   produceInterval = setInterval(function() {
@@ -225,7 +239,17 @@ var start = function(restEndpoint, apiKey, callback) {
             }
 
             io.emit('topic_data', data);
-          }
+
+            // ...and insert a document in the Cloudant database
+            livechat.insert({ data: data }, function(err, body, header) {
+              if (err) {
+                console.log('[insert] ', err.message);
+              } else {  
+                console.log('Inserted a Cloudant document for message: ', data);
+                console.log(body);
+              }
+            });
+          } 
         })
         .fail(function(error) {
           throw new Error(error);
@@ -260,6 +284,15 @@ var start = function(restEndpoint, apiKey, callback) {
       console.log(error);
       stop(1);
     });
+
+  // Remove any existing database called "livechat".
+  cloudant.db.destroy('livechat', function(err) {
+
+    // Create a new "livechat" database.
+    cloudant.db.create('livechat', function() {
+      console.log('Cloudant database created.');
+    });
+});
 };
 
 var stop = function(exitCode) {
